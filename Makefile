@@ -1,4 +1,6 @@
 CC := clang++
+CPPFLAGS := -std=c++14 -Wall
+LDFLAGS := -lreadline
 
 all:
-	$(CC) -std=c++14 -Wall main.cpp -o main
+	$(CC) $(CPPFLAGS) main.cpp -o main $(LDFLAGS)

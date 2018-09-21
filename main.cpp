@@ -5,7 +5,10 @@
 #include <memory>
 #include <sstream>
 
-#define VERSION "v0.1.0"
+#include <readline/readline.h>
+#include <readline/history.h>
+
+#define VERSION "v0.1.1"
 
 enum TypeTag {
     T_OBJ,
@@ -288,10 +291,11 @@ int main() {
             sim.stack.back()->print(std::cout) << std::endl;
         }
 
-        std::cout << ">>> ";
-
-        std::string input;
-        std::getline(std::cin, input);
+        // Fetch user input
+        char* buf = readline(">>> ");
+        std::string input(buf);
+        free(buf);
+        if(input.size() > 0) add_history(input.c_str());
 
         bool escape_string = false;
         std::string stringbuffer;
@@ -299,19 +303,20 @@ int main() {
         std::istringstream ss(input);
         std::string buffer;
         while(std::getline(ss, buffer, ' ')) {
-            if(buffer.size() > 0) {
-                if(buffer[0] == '\"') {
-                    escape_string = true;
-                    buffer = buffer.substr(1);
-                }
+            if(buffer.empty()) continue;
 
-                auto pos = buffer.find_first_of("\"");
-                if(pos != std::string::npos) {
-                    stringbuffer += buffer.substr(0, pos);
-                    if(pos < buffer.size()-1) buffer = buffer.substr(pos+1);
-                    escape_string = false;
-                    sim.push(std::make_unique<Str>(stringbuffer));
-                }
+            // Check for strings
+            if(buffer[0] == '\"') {
+                escape_string = true;
+                buffer = buffer.substr(1);
+            }
+
+            auto pos = buffer.find_first_of("\"");
+            if(pos != std::string::npos) {
+                stringbuffer += buffer.substr(0, pos);
+                if(pos < buffer.size()-1) buffer = buffer.substr(pos+1);
+                escape_string = false;
+                sim.push(std::make_unique<Str>(stringbuffer));
             }
 
             if(escape_string) {
