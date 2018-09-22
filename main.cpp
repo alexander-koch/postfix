@@ -8,98 +8,9 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
-#define VERSION "v0.1.1"
+#include "types.hpp"
 
-enum TypeTag {
-    T_OBJ,
-    T_BOOL,
-    T_INT,
-    T_FLT,
-    T_STR,
-    T_ARR,
-    T_EXE_ARR,
-    T_PARAMS,
-    T_SYM
-};
-
-class Obj {
-public:
-    TypeTag tag = TypeTag::T_OBJ;
-    virtual ~Obj() {}
-    virtual std::ostream& print(std::ostream& os) = 0;
-protected:
-    Obj(TypeTag t) : tag(t) {}
-};
-
-class Bool : public Obj {
-public:
-    bool b;
-    Bool(bool b) : Obj(T_BOOL), b(b) {}
-
-    virtual std::ostream& print(std::ostream& os) override {
-        os << b;
-        return os;
-    }
-};
-
-class Int : public Obj {
-public:
-    int i;
-    Int(int i) : Obj(T_INT), i(i) {}
-
-    virtual std::ostream& print(std::ostream& os) override {
-        os << i;
-        return os;
-    }
-};
-
-class Flt : public Obj {
-public:
-    double f;
-    Flt(double f) : Obj(T_FLT), f(f) {}
-
-    virtual std::ostream& print(std::ostream& os) override {
-        os << f;
-        return os;
-    }
-};
-
-class Str : public Obj {
-public:
-    std::string str;
-    Str(std::string& str) : Obj(T_STR), str(std::move(str)) {}
-
-    virtual std::ostream& print(std::ostream& os) override {
-        os << str;
-        return os;
-    }
-};
-
-class Arr : public Obj {
-public:
-    std::vector<std::unique_ptr<Obj>> vec;
-    Arr(std::vector<std::unique_ptr<Obj>> vec, bool is_executable=false)
-        : Obj(is_executable ? T_EXE_ARR : T_ARR), vec(std::move(vec)) {}
-
-    virtual std::ostream& print(std::ostream& os) override {
-        std::for_each(vec.begin(), vec.end(), [&os](auto& t) {
-            os << t.get();
-        });
-        return os;
-    }
-};
-
-class Sym : public Obj {
-public:
-    std::string str;
-    Sym(std::string& str) : Obj(T_SYM), str(std::move(str)) {}
-    Sym(const char* c) : Obj(T_SYM), str(c) {}
-    
-    virtual std::ostream& print(std::ostream& os) override {
-        os << str;
-        return os;
-    }
-};
+#define VERSION "v0.1.2"
 
 using Stack = std::vector<std::unique_ptr<Obj>>;
 using StackFunction = std::function<void(Stack* s)>;
@@ -144,103 +55,57 @@ public:
     }
 };
 
-using UnaryFunc = std::function<std::unique_ptr<Obj>(std::unique_ptr<Obj>)>;
-using ArithFunc = std::function<std::unique_ptr<Obj>(std::unique_ptr<Obj>, std::unique_ptr<Obj>)>;
-
-std::unique_ptr<Obj> add_int(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Int*>(a.get())->i + dynamic_cast<Int*>(b.get())->i);
+void add_int(Stack* s, int a, int b) {
+    s->push_back(std::make_unique<Int>(a + b));
 }
 
-std::unique_ptr<Obj> add_flt(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Flt*>(a.get())->f + dynamic_cast<Flt*>(b.get())->f);
+void add_flt(Stack* s, double a, double b) {
+    s->push_back(std::make_unique<Int>(a + b));
 }
 
-std::unique_ptr<Obj> sub_int(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Int*>(a.get())->i - dynamic_cast<Int*>(b.get())->i);
+void sub_int(Stack* s, int a, int b) {
+    s->push_back(std::make_unique<Int>(a - b));
 }
 
-std::unique_ptr<Obj> sub_flt(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Flt*>(a.get())->f - dynamic_cast<Flt*>(b.get())->f);
+void sub_flt(Stack* s, double a, double b) {
+    s->push_back(std::make_unique<Int>(a - b));
 }
 
-std::unique_ptr<Obj> mul_int(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Int*>(a.get())->i * dynamic_cast<Int*>(b.get())->i);
+void mul_int(Stack* s, int a, int b) {
+    s->push_back(std::make_unique<Int>(a + b));
 }
 
-std::unique_ptr<Obj> mul_flt(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Flt*>(a.get())->f * dynamic_cast<Flt*>(b.get())->f);
+void mul_flt(Stack* s, double a, double b) {
+    s->push_back(std::make_unique<Int>(a * b));
 }
 
-std::unique_ptr<Obj> div_int(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Flt>(dynamic_cast<Int*>(a.get())->i / static_cast<float>(dynamic_cast<Int*>(b.get())->i));
+void div_int(Stack* s, int a, int b) {
+    s->push_back(std::make_unique<Flt>(a / static_cast<float>(b)));
 }
 
-std::unique_ptr<Obj> div_flt(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Flt>(dynamic_cast<Flt*>(a.get())->f / dynamic_cast<Flt*>(b.get())->f);
+void div_flt(Stack* s, double a, double b) {
+    s->push_back(std::make_unique<Flt>(a / b));
 }
 
-std::unique_ptr<Obj> idiv(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Int*>(a.get())->i / dynamic_cast<Int*>(b.get())->i);
+void idiv(Stack* s, int a, int b) {
+    s->push_back(std::make_unique<Int>(a / b));
 }
 
-std::unique_ptr<Obj> mod(std::unique_ptr<Obj> a, std::unique_ptr<Obj> b) {
-    return std::make_unique<Int>(dynamic_cast<Int*>(a.get())->i % dynamic_cast<Int*>(b.get())->i);
+void mod(Stack* s, int a, int b) {
+    s->push_back(std::make_unique<Int>(a % b));
 }
 
-std::unique_ptr<Obj> int_to_flt(std::unique_ptr<Obj> x) {
-    return std::make_unique<Flt>(dynamic_cast<Int*>(x.get())->i);
-}
-
-std::unique_ptr<Obj> type_to_symbol(std::unique_ptr<Obj> x) {
-    std::string name;
-    switch(x->tag) {
-        case T_OBJ: name = ":Obj"; break;
-        case T_BOOL: name = ":Bool"; break;
-        case T_INT: name = ":Int"; break;
-        case T_FLT: name = ":Flt"; break;
-        case T_STR: name = ":Str"; break;
-        case T_ARR: name = ":Arr"; break;
-        case T_EXE_ARR: name = ":ExeArr"; break;
-        case T_PARAMS: name = ":Params"; break;
-        case T_SYM: name = ":Sym"; break;
-    }
-    return std::make_unique<Sym>(name);
-}
-
-void unary_op(Stack* s, UnaryFunc op) {
-    if(s->size() == 0) return;
-    auto x = std::move(s->back());
-    s->pop_back();
-    s->push_back(op(std::move(x)));
-}
-
-void binary_int_op(Stack* s, ArithFunc op) {
-    if(s->size() < 2) return;
-     auto x2 = std::move(s->back());
-    s->pop_back();
-    auto x1 = std::move(s->back());
-    s->pop_back();
-
-    if(x1->tag == T_INT && x2->tag == T_INT) {
-        s->push_back(op(std::move(x1), std::move(x2)));
-    }
-}
-
-void binary_arith_op(Stack* s, ArithFunc int_op, ArithFunc flt_op) {
-    if(s->size() < 2) return;
-    auto x2 = std::move(s->back());
-    s->pop_back();
-    auto x1 = std::move(s->back());
-    s->pop_back();
-
-    if(x1->tag == T_INT && x2->tag == T_INT) {
-        s->push_back(int_op(std::move(x1), std::move(x2)));
-    } else if(x1->tag == T_FLT && x2->tag == T_FLT) {
-        s->push_back(flt_op(std::move(x1), std::move(x2)));
-    } else if(x1->tag == T_INT && x2->tag == T_FLT) {
-        s->push_back(flt_op(int_to_flt(std::move(x1)), std::move(x2)));
-    } else if(x1->tag == T_FLT && x2->tag == T_INT) {
-        s->push_back(flt_op(std::move(x1), int_to_flt(std::move(x2))));
+std::string type_to_string(TypeTag tag) {
+    switch(tag) {
+        case T_OBJ: return":Obj";
+        case T_BOOL: return ":Bool";
+        case T_INT: return ":Int";
+        case T_FLT: return ":Flt";
+        case T_STR: return ":Str";
+        case T_ARR: return ":Arr";
+        case T_EXE_ARR: return ":ExeArr";
+        case T_PARAMS: return ":Params";
+        case T_SYM: return ":Sym";
     }
 }
 
@@ -248,6 +113,44 @@ void print_top(Stack* s) {
     if(s->size() > 0) {
         s->back()->print(std::cout);
         s->pop_back();
+    }
+}
+
+void int_to_flt(Stack* s, std::unique_ptr<Obj> x) {
+    s->push_back(std::make_unique<Flt>(dynamic_cast<Int*>(x.get())->i));
+}
+
+void type_to_symbol(Stack* s, std::unique_ptr<Obj> x) {
+    s->push_back(std::make_unique<Sym>(type_to_string(x->tag)));
+}
+
+using UnaryFunc = std::function<void(Stack*, std::unique_ptr<Obj>)>;
+
+void unary_op(Stack* s, UnaryFunc op) {
+    if(s->size() == 0) return;
+    auto x = std::move(s->back());
+    s->pop_back();
+    op(s, std::move(x));
+}
+
+using BinaryIntOp = std::function<void(Stack*, int, int)>;
+using BinaryFltOp = std::function<void(Stack*, double, double)>;
+
+void binary_arith_op(Stack* s, BinaryIntOp int_op, BinaryFltOp flt_op) {
+    if(s->size() < 2) return;
+    auto x2 = std::move(s->back());
+    s->pop_back();
+    auto x1 = std::move(s->back());
+    s->pop_back();
+
+    if(x1->tag == T_INT && x2->tag == T_INT) {
+        int_op(s, dynamic_cast<Int*>(x1.get())->i, dynamic_cast<Int*>(x2.get())->i);
+    } else if(x1->tag == T_FLT && x2->tag == T_FLT) {
+        flt_op(s, dynamic_cast<Flt*>(x1.get())->f, dynamic_cast<Flt*>(x2.get())->f);
+    } else if(x1->tag == T_INT && x2->tag == T_FLT) {
+        flt_op(s, dynamic_cast<Int*>(x1.get())->i, dynamic_cast<Flt*>(x2.get())->f);
+    } else if(x1->tag == T_FLT && x2->tag == T_INT) {
+        flt_op(s, dynamic_cast<Flt*>(x1.get())->f, dynamic_cast<Int*>(x2.get())->i);
     }
 }
 
@@ -266,6 +169,10 @@ bool is_integer(std::string& s) {
     }) == s.end();
 }
 
+void flt_undefined(Stack* s, double, double) {
+    s->push_back(std::make_unique<Sym>("Err: Operation not defined for :Flt x :Flt"));
+}
+
 int main() {
     bool running = true;
     auto sim = Simulator();
@@ -274,8 +181,8 @@ int main() {
         {{"-"}, [](Stack* s) { binary_arith_op(s, sub_int, sub_flt); }},
         {{"*"}, [](Stack* s) { binary_arith_op(s, mul_int, mul_flt); }},
         {{"/"}, [](Stack* s) { binary_arith_op(s, div_int, div_flt); }},
-        {{"i/"}, [](Stack* s) { binary_int_op(s, idiv); }},
-        {{"mod"}, [](Stack* s) { binary_int_op(s, mod); }},
+        {{"i/"}, [](Stack* s) { binary_arith_op(s, idiv, flt_undefined); }},
+        {{"mod"}, [](Stack* s) { binary_arith_op(s, mod, flt_undefined); }},
         {{"int->flt"}, [](Stack* s) { unary_op(s, int_to_flt); }},
         {{"print"}, [](Stack* s) { print_top(s); }},
         {{"println"}, [](Stack* s) { print_top(s); std::cout << std::endl; }},
