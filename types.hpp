@@ -1,6 +1,8 @@
 #ifndef __TYPES_HPP__
 #define __TYPES_HPP__
 
+#include <iostream>
+
 enum TypeTag {
     T_OBJ,
     T_BOOL,
@@ -73,9 +75,14 @@ public:
         : Obj(is_executable ? T_EXE_ARR : T_ARR), vec(std::move(vec)) {}
 
     virtual std::ostream& print(std::ostream& os) override {
-        std::for_each(vec.begin(), vec.end(), [&os](auto& t) {
-            os << t.get();
+        bool comma = false;
+        os << "[";
+        std::for_each(vec.begin(), vec.end(), [&os, &comma](auto& t) {
+            if(comma) os << ", ";
+            t->print(os);
+            comma = true;
         });
+        os << "]";
         return os;
     }
 };

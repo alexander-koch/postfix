@@ -4,13 +4,14 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <algorithm>
 
 #include <readline/readline.h>
 #include <readline/history.h>
 
 #include "types.hpp"
 
-#define VERSION "v0.1.2"
+#define VERSION "v0.1.3"
 
 using Stack = std::vector<std::unique_ptr<Obj>>;
 using StackFunction = std::function<void(Stack* s)>;
@@ -27,8 +28,27 @@ public:
     void push(std::unique_ptr<Obj> obj) {
         if(obj->tag == T_SYM) {
             auto sym = dynamic_cast<Sym*>(obj.get())->str;
-            if(sym[0] == ':' || sym[sym.size()-1] == ':') {
+            if(sym[0] == ':' || sym[sym.size()-1] == ':' || sym == "[") {
                 stack.push_back(std::move(obj)); 
+            } else if(sym == "]") {
+                std::vector<std::unique_ptr<Obj>> arr;
+                while(stack.size() > 0
+                        && !(stack.back()->tag == T_SYM
+                        && dynamic_cast<Sym*>(stack.back().get())->str == "[")) {
+                        
+                    arr.push_back(std::move(stack.back()));
+                    stack.pop_back();
+                }
+
+                if(stack.size() > 0
+                        && stack.back()->tag == T_SYM
+                        && dynamic_cast<Sym*>(stack.back().get())->str == "[") {
+                    
+                    std::reverse(arr.begin(), arr.end());
+                    stack.push_back(std::make_unique<Arr>(std::move(arr)));
+                } else {
+                    // TODO error
+                }
             } else {
                 auto iter = functions.find(sym);
                 if(iter != functions.end()) {
@@ -154,6 +174,10 @@ void binary_arith_op(Stack* s, BinaryIntOp int_op, BinaryFltOp flt_op) {
     }
 }
 
+void flt_undefined(Stack* s, double, double) {
+    s->push_back(std::make_unique<Sym>("Err: Operation not defined for :Flt x :Flt"));
+}
+
 bool is_double(std::string& s) {
     try {
         std::stod(s);
@@ -169,8 +193,42 @@ bool is_integer(std::string& s) {
     }) == s.end();
 }
 
-void flt_undefined(Stack* s, double, double) {
-    s->push_back(std::make_unique<Sym>("Err: Operation not defined for :Flt x :Flt"));
+bool is_punct(char c) {
+    switch(c) {
+        case '{':
+        case '}':
+        case '[':
+        case ']': return true;
+        default: return false;
+    }
+}
+
+enum TokenType {
+    TOK_STR,
+    TOK_SYM,
+    TOK_EOF
+};
+
+TokenType scan(std::istringstream& iss, std::string& buffer) {
+    char c;
+    iss >> std::ws;
+    buffer.clear();
+    if(!iss.get(c)) return TokenType::TOK_EOF;
+    if(c == '\"') {
+        while(iss.get(c) && c != '\"') {
+            buffer += c;
+        }
+        return TOK_STR;
+    } else if(is_punct(c)) {
+        buffer = std::string(1, c);
+    } else {
+        buffer += c;
+        while(iss.get(c) && !std::isspace(c) && !is_punct(c)) {
+            buffer += c;
+        }
+        iss.putback(c);
+    }
+    return TOK_SYM;
 }
 
 int main() {
@@ -204,39 +262,21 @@ int main() {
         free(buf);
         if(input.size() > 0) add_history(input.c_str());
 
-        bool escape_string = false;
-        std::string stringbuffer;
-
+        // Split into tokens
         std::istringstream ss(input);
-        std::string buffer;
-        while(std::getline(ss, buffer, ' ')) {
-            if(buffer.empty()) continue;
-
-            // Check for strings
-            if(buffer[0] == '\"') {
-                escape_string = true;
-                buffer = buffer.substr(1);
-            }
-
-            auto pos = buffer.find_first_of("\"");
-            if(pos != std::string::npos) {
-                stringbuffer += buffer.substr(0, pos);
-                if(pos < buffer.size()-1) buffer = buffer.substr(pos+1);
-                escape_string = false;
-                sim.push(std::make_unique<Str>(stringbuffer));
-            }
-
-            if(escape_string) {
-                stringbuffer += buffer + " ";
-                continue;
-            }  
-
-            if(is_integer(buffer)) {
-                sim.push(std::make_unique<Int>(std::stoi(buffer)));
-            } else if(is_double(buffer)) {
-                sim.push(std::make_unique<Flt>(std::stod(buffer)));
-            } else {
-                sim.push(std::make_unique<Sym>(buffer));
+        TokenType tok;
+        std::string token;
+        while((tok = scan(ss, token)) != TOK_EOF) {
+            if(tok == TOK_STR) {
+                sim.push(std::make_unique<Str>(token));
+            } else if(tok == TOK_SYM) {
+                if(is_integer(token)) {
+                    sim.push(std::make_unique<Int>(std::stoi(token)));
+                } else if(is_double(token)) {
+                    sim.push(std::make_unique<Flt>(std::stod(token)));
+                } else {
+                    sim.push(std::make_unique<Sym>(token));
+                }
             }
         }
     }
