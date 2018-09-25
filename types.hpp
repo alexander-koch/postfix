@@ -20,6 +20,7 @@ public:
     TypeTag tag = TypeTag::T_OBJ;
     virtual ~Obj() {}
     virtual std::ostream& print(std::ostream& os) = 0;
+    virtual std::unique_ptr<Obj> copy() = 0;
 protected:
     Obj(TypeTag t) : tag(t) {}
 };
@@ -33,6 +34,10 @@ public:
         os << b;
         return os;
     }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        return std::make_unique<Bool>(b);
+    }
 };
 
 class Int : public Obj {
@@ -43,6 +48,10 @@ public:
     virtual std::ostream& print(std::ostream& os) override {
         os << i;
         return os;
+    }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        return std::make_unique<Int>(i);
     }
 };
 
@@ -55,6 +64,10 @@ public:
         os << f;
         return os;
     }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        return std::make_unique<Flt>(f);
+    }
 };
 
 class Str : public Obj {
@@ -65,6 +78,10 @@ public:
     virtual std::ostream& print(std::ostream& os) override {
         os << str;
         return os;
+    }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        return std::make_unique<Str>(str);
     }
 };
 
@@ -85,6 +102,14 @@ public:
         os << "]";
         return os;
     }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        std::vector<std::unique_ptr<Obj>> copy_vec;
+        std::transform(vec.begin(), vec.end(), copy_vec.begin(), [](auto& x) {
+            return x->copy();
+        });
+        return std::make_unique<Arr>(std::move(copy_vec));
+    }
 };
 
 class Sym : public Obj {
@@ -96,6 +121,10 @@ public:
     virtual std::ostream& print(std::ostream& os) override {
         os << str;
         return os;
+    }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        return std::make_unique<Sym>(str);
     }
 };
 

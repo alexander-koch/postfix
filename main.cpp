@@ -11,15 +11,21 @@
 
 #include "types.hpp"
 
-#define VERSION "v0.1.3"
+#define VERSION "v0.1.4"
 
 using Stack = std::vector<std::unique_ptr<Obj>>;
 using StackFunction = std::function<void(Stack* s)>;
 
 class Simulator {
+private:
+    bool evaluate_on_push = true;
+    int exe_arr = 0;
+    int exe_begin;
+
 public:
     Stack stack;
     std::map<std::string, StackFunction> functions;
+    std::map<std::string, std::unique_ptr<Obj>> dictionary;
 
     void define_symbol(std::string sym, StackFunction sf) {
         functions.emplace(sym, sf);
@@ -29,34 +35,65 @@ public:
         if(obj->tag == T_SYM) {
             auto sym = dynamic_cast<Sym*>(obj.get())->str;
             if(sym[0] == ':' || sym[sym.size()-1] == ':' || sym == "[") {
-                stack.push_back(std::move(obj)); 
-            } else if(sym == "]") {
-                std::vector<std::unique_ptr<Obj>> arr;
-                while(stack.size() > 0
-                        && !(stack.back()->tag == T_SYM
-                        && dynamic_cast<Sym*>(stack.back().get())->str == "[")) {
-                        
-                    arr.push_back(std::move(stack.back()));
-                    stack.pop_back();
-                }
+                stack.push_back(std::move(obj));
+            } else if(sym == "{") {
+                stack.push_back(std::move(obj));
 
-                if(stack.size() > 0
-                        && stack.back()->tag == T_SYM
-                        && dynamic_cast<Sym*>(stack.back().get())->str == "[") {
-                    
-                    std::reverse(arr.begin(), arr.end());
-                    stack.push_back(std::make_unique<Arr>(std::move(arr)));
+                evaluate_on_push = false;
+                if(exe_arr == 0) exe_begin = stack.size();
+                exe_arr++;
+            } else if(sym == "}") {
+                exe_arr--;
+                if(exe_arr < 0) {
+                    // TODO throw an error
+
+                } else if(exe_arr == 0) {
+                    evaluate_on_push = true;
+
+                    // Move range from stack into array
+                    std::vector<std::unique_ptr<Obj>> arr;
+                    auto start = std::next(stack.begin(), exe_begin);
+                    std::move(start, stack.end(), std::back_inserter(arr));
+                    stack.erase(std::prev(start), stack.end());
+
+                    // Push newly created executable array onto the stack
+                    stack.push_back(std::make_unique<Arr>(std::move(arr), true));
                 } else {
-                    // TODO error
+                    stack.push_back(std::move(obj));
                 }
             } else {
-                auto iter = functions.find(sym);
-                if(iter != functions.end()) {
-                    iter->second(&stack);
+                if(evaluate_on_push) {
+                    if(sym[sym.size()-1] == '!') {
+                        sym.pop_back();
+                        if(stack.size() > 0) {
+                            dictionary[sym] = std::move(stack.back());
+                            stack.pop_back();
+                        } else {
+                            // TODO error handling
+                        }
+                    } else {
+                        auto iter = functions.find(sym);
+                        if(iter != functions.end()) {
+                            iter->second(&stack);
+                        } else {
+                            auto iter = dictionary.find(sym);
+                            if(iter != dictionary.end()) {
+                                auto& obj = iter->second;
+                                if(obj->tag == T_EXE_ARR) {
+                                    auto& arr = dynamic_cast<Arr*>(obj.get())->vec;
+                                    for(auto& x : arr) {
+                                        push(x->copy());
+                                    }
+                                } else {
+                                    stack.push_back(obj->copy());
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    stack.push_back(std::move(obj));
                 }
             }
-        } else if(obj->tag == T_EXE_ARR) {
-            // TODO
         } else {
             stack.push_back(std::move(obj));
         }
@@ -92,7 +129,7 @@ void sub_flt(Stack* s, double a, double b) {
 }
 
 void mul_int(Stack* s, int a, int b) {
-    s->push_back(std::make_unique<Int>(a + b));
+    s->push_back(std::make_unique<Int>(a * b));
 }
 
 void mul_flt(Stack* s, double a, double b) {
@@ -126,6 +163,49 @@ std::string type_to_string(TypeTag tag) {
         case T_EXE_ARR: return ":ExeArr";
         case T_PARAMS: return ":Params";
         case T_SYM: return ":Sym";
+    }
+}
+
+void arr_close(Stack* s) {
+    std::vector<std::unique_ptr<Obj>> arr;
+    while(s->size() > 0
+            && !(s->back()->tag == T_SYM
+            && dynamic_cast<Sym*>(s->back().get())->str == "[")) {
+            
+        arr.push_back(std::move(s->back()));
+        s->pop_back();
+    }
+
+    if(s->size() > 0
+            && s->back()->tag == T_SYM
+            && dynamic_cast<Sym*>(s->back().get())->str == "[") {
+        
+        s->pop_back();
+        std::reverse(arr.begin(), arr.end());
+        s->push_back(std::make_unique<Arr>(std::move(arr)));
+    } else {
+        // TODO error
+    }
+}
+
+void store_symbol(Simulator* sim) {
+    if(sim->stack.size() < 2) return;
+    auto val = std::move(sim->stack.back());
+    sim->stack.pop_back();
+    auto key = std::move(sim->stack.back());
+    sim->stack.pop_back();
+
+    if(key->tag != T_SYM) {
+        // TODO error handling
+    } else {
+        auto dict_key = dynamic_cast<Sym*>(key.get())->str;
+        if(dict_key[0] == ':') {
+            dict_key = dict_key.substr(1);
+        }
+        if(dict_key[dict_key.size()-1] == ':') {
+            dict_key.pop_back();
+        }
+        sim->dictionary[dict_key] = std::move(val);
     }
 }
 
@@ -171,6 +251,8 @@ void binary_arith_op(Stack* s, BinaryIntOp int_op, BinaryFltOp flt_op) {
         flt_op(s, dynamic_cast<Int*>(x1.get())->i, dynamic_cast<Flt*>(x2.get())->f);
     } else if(x1->tag == T_FLT && x2->tag == T_INT) {
         flt_op(s, dynamic_cast<Flt*>(x1.get())->f, dynamic_cast<Int*>(x2.get())->i);
+    } else {
+        // TODO error message
     }
 }
 
@@ -246,7 +328,10 @@ int main() {
         {{"println"}, [](Stack* s) { print_top(s); std::cout << std::endl; }},
         {{"clear"}, [](Stack* s) { s->clear(); }},
         {{"type"}, [](Stack* s) { unary_op(s, type_to_symbol); }},
-        {{"exit"}, [&running](Stack*) { running = false; }}
+        {{"exit"}, [&running](Stack*) { running = false; }},
+        {{"]"}, [](Stack* s) { arr_close(s); }},
+        {{"stack"}, [&sim](Stack* s) { std::cout << sim << std::endl; }},
+        {{"!"}, [&sim](Stack* s) { store_symbol(&sim); }}
     };
 
     std::cout << "Postfux - " << VERSION << std::endl;
