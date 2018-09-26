@@ -154,7 +154,7 @@ void mod(Stack* s, int a, int b) {
 
 std::string type_to_string(TypeTag tag) {
     switch(tag) {
-        case T_OBJ: return":Obj";
+        case T_OBJ: return ":Obj";
         case T_BOOL: return ":Bool";
         case T_INT: return ":Int";
         case T_FLT: return ":Flt";
@@ -334,7 +334,7 @@ int main() {
         {{"!"}, [&sim](Stack* s) { store_symbol(&sim); }}
     };
 
-    std::cout << "Postfux - " << VERSION << std::endl;
+    std::cout << "PostFix - " << VERSION << std::endl;
 
     while(running) {
         if(sim.stack.size() > 0) {
