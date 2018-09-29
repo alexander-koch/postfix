@@ -10,8 +10,9 @@
 #include <readline/history.h>
 
 #include "types.hpp"
+#include "lexer.hpp"
 
-#define VERSION "v0.1.4"
+#define VERSION "v0.1.6"
 
 using Stack = std::vector<std::unique_ptr<Obj>>;
 using StackFunction = std::function<void(Stack* s)>;
@@ -25,14 +26,14 @@ private:
 public:
     Stack stack;
     std::map<std::string, StackFunction> functions;
-    std::map<std::string, std::unique_ptr<Obj>> dictionary;
+    Dictionary dictionary;
 
     void define_symbol(std::string sym, StackFunction sf) {
         functions.emplace(sym, sf);
     }
 
     void push(std::unique_ptr<Obj> obj) {
-        if(obj->tag == T_SYM) {
+        if(obj->tag == TypeTag::SYM) {
             auto sym = dynamic_cast<Sym*>(obj.get())->str;
             if(sym[0] == ':' || sym[sym.size()-1] == ':' || sym == "[") {
                 stack.push_back(std::move(obj));
@@ -57,7 +58,7 @@ public:
                     stack.erase(std::prev(start), stack.end());
 
                     // Push newly created executable array onto the stack
-                    stack.push_back(std::make_unique<Arr>(std::move(arr), true));
+                    stack.push_back(std::make_unique<ExeArr>(std::move(arr)));
                 } else {
                     stack.push_back(std::move(obj));
                 }
@@ -79,11 +80,20 @@ public:
                             auto iter = dictionary.find(sym);
                             if(iter != dictionary.end()) {
                                 auto& obj = iter->second;
-                                if(obj->tag == T_EXE_ARR) {
-                                    auto& arr = dynamic_cast<Arr*>(obj.get())->vec;
-                                    for(auto& x : arr) {
+                                if(obj->tag == TypeTag::EXE_ARR) {
+                                    auto old_dict = std::move(dictionary);
+
+                                    auto exe_arr = dynamic_cast<ExeArr*>(obj.get());
+                                    dictionary = exe_arr->dictionary.copy();
+
+                                    // dictionary.print(std::cout);
+
+                                    for(auto& x : exe_arr->vec) {
                                         push(x->copy());
                                     }
+
+                                    // exe_arr->dictionary = std::move(dictionary);
+                                    dictionary = std::move(old_dict);
                                 } else {
                                     stack.push_back(obj->copy());
                                 }
@@ -154,22 +164,22 @@ void mod(Stack* s, int a, int b) {
 
 std::string type_to_string(TypeTag tag) {
     switch(tag) {
-        case T_OBJ: return ":Obj";
-        case T_BOOL: return ":Bool";
-        case T_INT: return ":Int";
-        case T_FLT: return ":Flt";
-        case T_STR: return ":Str";
-        case T_ARR: return ":Arr";
-        case T_EXE_ARR: return ":ExeArr";
-        case T_PARAMS: return ":Params";
-        case T_SYM: return ":Sym";
+        case TypeTag::OBJ: return ":Obj";
+        case TypeTag::BOOL: return ":Bool";
+        case TypeTag::INT: return ":Int";
+        case TypeTag::FLT: return ":Flt";
+        case TypeTag::STR: return ":Str";
+        case TypeTag::ARR: return ":Arr";
+        case TypeTag::EXE_ARR: return ":ExeArr";
+        case TypeTag::PARAMS: return ":Params";
+        case TypeTag::SYM: return ":Sym";
     }
 }
 
 void arr_close(Stack* s) {
     std::vector<std::unique_ptr<Obj>> arr;
     while(s->size() > 0
-            && !(s->back()->tag == T_SYM
+            && !(s->back()->tag == TypeTag::SYM
             && dynamic_cast<Sym*>(s->back().get())->str == "[")) {
             
         arr.push_back(std::move(s->back()));
@@ -177,7 +187,7 @@ void arr_close(Stack* s) {
     }
 
     if(s->size() > 0
-            && s->back()->tag == T_SYM
+            && s->back()->tag == TypeTag::SYM
             && dynamic_cast<Sym*>(s->back().get())->str == "[") {
         
         s->pop_back();
@@ -188,24 +198,74 @@ void arr_close(Stack* s) {
     }
 }
 
-void store_symbol(Simulator* sim) {
-    if(sim->stack.size() < 2) return;
-    auto val = std::move(sim->stack.back());
-    sim->stack.pop_back();
-    auto key = std::move(sim->stack.back());
-    sim->stack.pop_back();
+void sanitize_symbol(std::string& sym) {
+    if(sym[0] == ':') {
+        sym.erase(0, 1);
+    }
+    if(sym[sym.size()-1] == ':') {
+        sym.pop_back();
+    }
+}
 
-    if(key->tag != T_SYM) {
+void store_symbol(Simulator* sim) {
+    if(sim->stack.size() < 2) {
         // TODO error handling
     } else {
-        auto dict_key = dynamic_cast<Sym*>(key.get())->str;
-        if(dict_key[0] == ':') {
-            dict_key = dict_key.substr(1);
+        auto val = std::move(sim->stack.back());
+        sim->stack.pop_back();
+        auto key = std::move(sim->stack.back());
+        sim->stack.pop_back();
+
+        if(key->tag != TypeTag::SYM) {
+            // TODO error handling
+        } else {
+            auto dict_key = dynamic_cast<Sym*>(key.get())->str;
+            sanitize_symbol(dict_key);        
+            sim->dictionary[dict_key] = std::move(val);
         }
-        if(dict_key[dict_key.size()-1] == ':') {
-            dict_key.pop_back();
+    }
+}
+
+void lam(Simulator* sim) {
+    if(sim->stack.size() < 1) {
+        // TODO error handling
+    } else if(sim->stack.back()->tag != TypeTag::EXE_ARR) {
+        // TODO error handling
+    } else {
+        auto exe_arr = dynamic_cast<ExeArr*>(sim->stack.back().get());
+        exe_arr->add_dictionary(sim->dictionary.copy());
+    }
+}
+
+std::unique_ptr<Sym> err(std::string err) {
+    return std::make_unique<Sym>("Err: " + err);
+}
+
+void fun(Simulator* sim) {
+    if(sim->stack.size() < 2) {
+        sim->stack.push_back(err("Expected two elements"));
+    } else {
+        auto exe_arr_ptr = std::move(sim->stack.back());
+        sim->stack.pop_back();
+        auto key_ptr = std::move(sim->stack.back());
+        sim->stack.pop_back();
+
+        if(key_ptr->tag != TypeTag::SYM) {
+            sim->stack.push_back(err("Expected a SYM found " + type_to_string(key_ptr->tag)));
+        } else {
+            auto key = dynamic_cast<Sym*>(key_ptr.get())->str;
+            sanitize_symbol(key);
+
+            auto exe_arr = dynamic_cast<ExeArr*>(exe_arr_ptr.get());
+            exe_arr->add_dictionary(sim->dictionary.copy());
+            //exe_arr->dictionary[key] = exe_arr_ptr;
+
+            sim->dictionary[key] = std::move(exe_arr_ptr);
+
+            std::shared_ptr<Obj> o = sim->dictionary[key];
+            auto ref = dynamic_cast<ExeArr*>(o.get());
+            ref->dictionary[key] = o;
         }
-        sim->dictionary[dict_key] = std::move(val);
     }
 }
 
@@ -243,13 +303,13 @@ void binary_arith_op(Stack* s, BinaryIntOp int_op, BinaryFltOp flt_op) {
     auto x1 = std::move(s->back());
     s->pop_back();
 
-    if(x1->tag == T_INT && x2->tag == T_INT) {
+    if(x1->tag == TypeTag::INT && x2->tag == TypeTag::INT) {
         int_op(s, dynamic_cast<Int*>(x1.get())->i, dynamic_cast<Int*>(x2.get())->i);
-    } else if(x1->tag == T_FLT && x2->tag == T_FLT) {
+    } else if(x1->tag == TypeTag::FLT && x2->tag == TypeTag::FLT) {
         flt_op(s, dynamic_cast<Flt*>(x1.get())->f, dynamic_cast<Flt*>(x2.get())->f);
-    } else if(x1->tag == T_INT && x2->tag == T_FLT) {
+    } else if(x1->tag == TypeTag::INT && x2->tag == TypeTag::FLT) {
         flt_op(s, dynamic_cast<Int*>(x1.get())->i, dynamic_cast<Flt*>(x2.get())->f);
-    } else if(x1->tag == T_FLT && x2->tag == T_INT) {
+    } else if(x1->tag == TypeTag::FLT && x2->tag == TypeTag::INT) {
         flt_op(s, dynamic_cast<Flt*>(x1.get())->f, dynamic_cast<Int*>(x2.get())->i);
     } else {
         // TODO error message
@@ -275,42 +335,33 @@ bool is_integer(std::string& s) {
     }) == s.end();
 }
 
-bool is_punct(char c) {
-    switch(c) {
-        case '{':
-        case '}':
-        case '[':
-        case ']': return true;
-        default: return false;
+Simulator* rl_sim;
+
+char* builtin_name_generator(const char* text, int state) {
+    static std::vector<std::string> matches;
+    static size_t match_index;
+
+    if(state == 0) {
+        matches.clear();
+        match_index = 0;
+
+        for(auto it : rl_sim->dictionary) {
+            if(std::strncmp(it.first.c_str(), text, strlen(text)) == 0) {
+                matches.push_back(it.first);
+            }
+        }
+    }
+
+    if(match_index >= matches.size()) {
+        return nullptr;
+    } else {
+        return strdup(matches[match_index].c_str());
     }
 }
 
-enum TokenType {
-    TOK_STR,
-    TOK_SYM,
-    TOK_EOF
-};
-
-TokenType scan(std::istringstream& iss, std::string& buffer) {
-    char c;
-    iss >> std::ws;
-    buffer.clear();
-    if(!iss.get(c)) return TokenType::TOK_EOF;
-    if(c == '\"') {
-        while(iss.get(c) && c != '\"') {
-            buffer += c;
-        }
-        return TOK_STR;
-    } else if(is_punct(c)) {
-        buffer = std::string(1, c);
-    } else {
-        buffer += c;
-        while(iss.get(c) && !std::isspace(c) && !is_punct(c)) {
-            buffer += c;
-        }
-        iss.putback(c);
-    }
-    return TOK_SYM;
+char** builtin_name_completion(const char* text, int start, int end) {
+    rl_attempted_completion_over = 1;
+    return rl_completion_matches(text, builtin_name_generator);
 }
 
 int main() {
@@ -331,8 +382,14 @@ int main() {
         {{"exit"}, [&running](Stack*) { running = false; }},
         {{"]"}, [](Stack* s) { arr_close(s); }},
         {{"stack"}, [&sim](Stack* s) { std::cout << sim << std::endl; }},
-        {{"!"}, [&sim](Stack* s) { store_symbol(&sim); }}
+        {{"dict"}, [&sim](Stack* s) { sim.dictionary.print(std::cout); }},
+        {{"!"}, [&sim](Stack* s) { store_symbol(&sim); }},
+        {{"lam"}, [&sim](Stack* s) { lam(&sim); }},
+        {{"fun"}, [&sim](Stack* s) { fun(&sim); }}
     };
+
+    rl_sim = &sim;
+    rl_attempted_completion_function = builtin_name_completion;
 
     std::cout << "PostFix - " << VERSION << std::endl;
 
@@ -346,15 +403,15 @@ int main() {
         std::string input(buf);
         free(buf);
         if(input.size() > 0) add_history(input.c_str());
-
+        
         // Split into tokens
-        std::istringstream ss(input);
+        Lexer lexer(std::move(input));
         TokenType tok;
         std::string token;
-        while((tok = scan(ss, token)) != TOK_EOF) {
-            if(tok == TOK_STR) {
+        while((tok = lexer.next(token)) != TokenType::EOL) {
+            if(tok == TokenType::STR) {
                 sim.push(std::make_unique<Str>(token));
-            } else if(tok == TOK_SYM) {
+            } else if(tok == TokenType::SYM) {
                 if(is_integer(token)) {
                     sim.push(std::make_unique<Int>(std::stoi(token)));
                 } else if(is_double(token)) {

@@ -1,5 +1,5 @@
 CC := clang++
-CPPFLAGS := -std=c++14 -Wall
+CPPFLAGS := -std=c++14 -Wall -g
 LDFLAGS := -lreadline
 EXE := pfix
 
