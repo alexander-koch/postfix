@@ -1,7 +1,7 @@
 CC := clang++
 CPPFLAGS := -std=c++14 -Wall -g
 LDFLAGS := -lreadline
-EXE := pfix
+APP := pfix
 
 all:
-	$(CC) $(CPPFLAGS) src/main.cpp -o $(EXE) $(LDFLAGS)
+	$(CC) $(CPPFLAGS) src/main.cpp -o $(APP) $(LDFLAGS)

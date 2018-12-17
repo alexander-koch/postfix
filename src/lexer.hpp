@@ -9,6 +9,9 @@
 enum class TokenType {
     STR,
     SYM,
+    BOOL,
+    INT,
+    FLT,
     EOL // end of line
 };
 
@@ -33,7 +36,9 @@ bool is_punct(char c) {
         case '{':
         case '}':
         case '[':
-        case ']': return true;
+        case ']':
+        case '(':
+        case ')': return true;
         default: return false;
     }
 }
@@ -45,6 +50,25 @@ bool Lexer::peek(wchar_t& c) {
         c = input[pos];
         return true;
     }
+}
+
+bool is_bool(std::string& s) {
+    return s == "true" || s == "false";
+}
+
+bool is_float(std::string& s) {
+    try {
+        std::stod(s);
+    } catch(...) {
+        return false;
+    }
+    return true;
+}
+
+bool is_integer(std::string& s) {
+    return std::find_if(s.begin(), s.end(), [](char c) {
+        return !std::isdigit(c);
+    }) == s.end();
 }
 
 TokenType Lexer::next(std::string& buffer) {
@@ -70,6 +94,14 @@ TokenType Lexer::next(std::string& buffer) {
         while(peek(c) && !std::iswspace(c) && !is_punct(c)) {
             buffer += converter.to_bytes(c);
             pos++;
+        }
+
+        if(is_bool(buffer)) {
+            return TokenType::BOOL;
+        } else if(is_integer(buffer)) {
+            return TokenType::INT;
+        } else if(is_float(buffer)) {
+            return TokenType::FLT;
         }
     }
     return TokenType::SYM;
