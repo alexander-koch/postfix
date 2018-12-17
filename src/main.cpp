@@ -5,6 +5,7 @@
 #include <memory>
 #include <sstream>
 #include <algorithm>
+#include <dlfcn.h>
 
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -14,10 +15,9 @@
 
 #define VERSION "v0.1.7"
 
-using Stack = std::vector<std::unique_ptr<Obj>>;
-using StackFunction = std::function<void(Stack* s)>;
+#include "pfix_ffi.hpp"
 
-void param_list_close(Stack* s);
+void param_list_close(PfixStack* s);
 
 class Simulator {
 private:
@@ -26,11 +26,11 @@ private:
     int exe_begin;
 
 public:
-    Stack stack;
-    std::map<std::string, StackFunction> builtins;
+    PfixStack stack;
+    PfixNativeDictionary builtins;
     Dictionary dictionary;
 
-    void define_symbol(std::string sym, StackFunction sf) {
+    void define_symbol(std::string sym, PfixStackFunction sf) {
         builtins.emplace(sym, sf);
     }
 
@@ -143,7 +143,7 @@ public:
     }
 };
 
-void arr_close(Stack* s) {
+void arr_close(PfixStack* s) {
     std::vector<std::unique_ptr<Obj>> arr;
     while(s->size() > 0
             && !(s->back()->tag == TypeTag::SYM
@@ -169,7 +169,7 @@ std::unique_ptr<Sym> err(const std::string& err) {
     return std::make_unique<Sym>("Err: " + err);
 }
 
-bool expect(Stack* s, TypeTag tag) {
+bool expect(PfixStack* s, TypeTag tag) {
     if(!(s->size() > 0 && s->back()->tag == tag)) {
         if(s->size() > 0) {
             err("Expected " + type_to_string(tag) + ", found " + type_to_string(s->back()->tag));
@@ -181,7 +181,7 @@ bool expect(Stack* s, TypeTag tag) {
     return true;
 }
 
-void param_list_close(Stack* s) {
+void param_list_close(PfixStack* s) {
     std::vector<std::pair<std::string, std::string>> params;
     std::vector<std::string> ret_types;
     std::vector<std::string> buffer;
@@ -302,31 +302,31 @@ void fun(Simulator* sim) {
     }
 }
 
-void print_top(Stack* s) {
+void print_top(PfixStack* s) {
     if(s->size() > 0) {
         s->back()->print(std::cout);
         s->pop_back();
     }
 }
 
-void int_to_flt(Stack* s, std::unique_ptr<Obj> x) {
+void int_to_flt(PfixStack* s, std::unique_ptr<Obj> x) {
     s->push_back(std::make_unique<Flt>(dynamic_cast<Int*>(x.get())->i));
 }
 
-void type_to_symbol(Stack* s, std::unique_ptr<Obj> x) {
+void type_to_symbol(PfixStack* s, std::unique_ptr<Obj> x) {
     s->push_back(std::make_unique<Sym>(type_to_string(x->tag)));
 }
 
-using UnaryFunc = std::function<void(Stack*, std::unique_ptr<Obj>)>;
+using UnaryFunc = std::function<void(PfixStack*, std::unique_ptr<Obj>)>;
 
-void unary_op(Stack* s, UnaryFunc op) {
+void unary_op(PfixStack* s, UnaryFunc op) {
     if(s->size() == 0) return;
     auto x = std::move(s->back());
     s->pop_back();
     op(s, std::move(x));
 }
 
-void binary_int_op(Stack* s, std::function<int(int, int)> op) {
+void binary_int_op(PfixStack* s, std::function<int(int, int)> op) {
     if(s->size() < 2) return;
     auto x2 = std::move(s->back());
     s->pop_back();
@@ -335,7 +335,7 @@ void binary_int_op(Stack* s, std::function<int(int, int)> op) {
         op(dynamic_cast<Int*>(s->back().get())->i, dynamic_cast<Int*>(x2.get())->i);
 }
 
-void binary_arith_op(Stack* s,
+void binary_arith_op(PfixStack* s,
         std::function<int(int, int)> int_op,
         std::function<double(double, double)> flt_op,
         bool int_ret_expect_float=false) {
@@ -368,7 +368,7 @@ void binary_arith_op(Stack* s,
     }
 }
 
-void binary_logical_op(Stack* s, std::function<bool(bool, bool)> bool_op) {
+void binary_logical_op(PfixStack* s, std::function<bool(bool, bool)> bool_op) {
     if(s->size() < 1) return;
     auto x = std::move(s->back());
     s->pop_back();
@@ -420,7 +420,7 @@ char** builtin_name_completion(const char* text, int start, int end) {
     return rl_completion_matches(text, builtin_name_generator);
 }
 
-void add_op(Stack* s) {
+void add_op(PfixStack* s) {
     if(s->size() < 2) return;
     if(s->back()->tag == TypeTag::STR) {
         auto x2 = std::move(s->back());
@@ -436,31 +436,57 @@ void add_op(Stack* s) {
     }
 }
 
+void load_library(Simulator* sim, PfixStack* s) {
+    auto x = std::move(s->back());
+    s->pop_back();
+    auto path = dynamic_cast<Str*>(x.get())->str;
+
+    void* handle = dlopen(path.c_str(), RTLD_LAZY);
+    if(handle == NULL) {
+        std::cerr << "Could not open " << path << std::endl;
+        return;
+    }
+
+    const size_t period_idx = path.rfind('.');
+    if(std::string::npos != period_idx) {
+        path.erase(period_idx);
+        path[0] = std::toupper(path[0]);
+    }
+
+    auto method_name = "PfixInit" + path;
+    auto method = (PfixEntryPoint)dlsym(handle, method_name.c_str());
+
+    if(method != NULL) {
+        method(&sim->builtins);
+    }
+}
+
 int main() {
     bool running = true;
     auto sim = Simulator();
     sim.builtins = {
-        {{"+"}, [](Stack* s) { add_op(s); }},
-        {{"-"}, [](Stack* s) { binary_arith_op(s, std::minus<int>(), std::minus<double>()); }},
-        {{"*"}, [](Stack* s) { binary_arith_op(s, std::multiplies<int>(), std::multiplies<double>()); }},
-        {{"/"}, [](Stack* s) { binary_arith_op(s, std::divides<double>(), std::divides<double>(), true); }},
-        {{"i/"}, [](Stack* s) { binary_int_op(s, std::divides<int>()); }},
-        {{"mod"}, [](Stack* s) { binary_int_op(s, std::modulus<int>()); }},
-        {{"and"}, [](Stack* s) { binary_logical_op(s, std::logical_and<bool>()); }},
-        {{"or"}, [](Stack* s) { binary_logical_op(s, std::logical_or<bool>()); }},
-        {{"int->flt"}, [](Stack* s) { unary_op(s, int_to_flt); }},
-        {{"print"}, [](Stack* s) { print_top(s); }},
-        {{"println"}, [](Stack* s) { print_top(s); std::cout << std::endl; }},
-        {{"clear"}, [](Stack* s) { s->clear(); }},
-        {{"type"}, [](Stack* s) { unary_op(s, type_to_symbol); }},
-        {{"exit"}, [&running](Stack*) { running = false; }},
-        {{"]"}, [](Stack* s) { arr_close(s); }},
-        {{")"}, [](Stack* s) { param_list_close(s); }},
-        {{"stack"}, [&sim](Stack* s) { std::cout << sim << std::endl; }},
-        {{"dict"}, [&sim](Stack* s) { sim.dictionary.print(std::cout); }},
-        {{"!"}, [&sim](Stack* s) { store_symbol(&sim); }},
-        {{"lam"}, [&sim](Stack* s) { lam(&sim); }},
-        {{"fun"}, [&sim](Stack* s) { fun(&sim); }}
+        {{"+"}, [](PfixStack* s) { add_op(s); }},
+        {{"-"}, [](PfixStack* s) { binary_arith_op(s, std::minus<int>(), std::minus<double>()); }},
+        {{"*"}, [](PfixStack* s) { binary_arith_op(s, std::multiplies<int>(), std::multiplies<double>()); }},
+        {{"/"}, [](PfixStack* s) { binary_arith_op(s, std::divides<double>(), std::divides<double>(), true); }},
+        {{"i/"}, [](PfixStack* s) { binary_int_op(s, std::divides<int>()); }},
+        {{"mod"}, [](PfixStack* s) { binary_int_op(s, std::modulus<int>()); }},
+        {{"and"}, [](PfixStack* s) { binary_logical_op(s, std::logical_and<bool>()); }},
+        {{"or"}, [](PfixStack* s) { binary_logical_op(s, std::logical_or<bool>()); }},
+        {{"int->flt"}, [](PfixStack* s) { unary_op(s, int_to_flt); }},
+        {{"print"}, [](PfixStack* s) { print_top(s); }},
+        {{"println"}, [](PfixStack* s) { print_top(s); std::cout << std::endl; }},
+        {{"clear"}, [](PfixStack* s) { s->clear(); }},
+        {{"type"}, [](PfixStack* s) { unary_op(s, type_to_symbol); }},
+        {{"exit"}, [&running](PfixStack*) { running = false; }},
+        {{"]"}, [](PfixStack* s) { arr_close(s); }},
+        {{")"}, [](PfixStack* s) { param_list_close(s); }},
+        {{"stack"}, [&sim](PfixStack* s) { std::cout << sim << std::endl; }},
+        {{"dict"}, [&sim](PfixStack* s) { sim.dictionary.print(std::cout); }},
+        {{"!"}, [&sim](PfixStack* s) { store_symbol(&sim); }},
+        {{"lam"}, [&sim](PfixStack* s) { lam(&sim); }},
+        {{"fun"}, [&sim](PfixStack* s) { fun(&sim); }},
+        {{"load-library"}, [&sim](PfixStack* s) { load_library(&sim, s); }}
     };
 
     rl_sim = &sim;
