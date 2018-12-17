@@ -36,52 +36,46 @@ public:
 
     bool evaluate_builtin(std::string& sym) {
         auto iter = builtins.find(sym);
-        if(iter != builtins.end()) {
-            iter->second(&stack);
-            return true;
-        }
-        return false;
+        if(iter == builtins.end()) return false;
+        iter->second(&stack);
+        return true;
     }
 
     bool evaluate_dictionary(std::string& sym) {
         auto iter = dictionary.find(sym);
-        if(iter != dictionary.end()) {
-            auto& obj = iter->second;
-            if(obj->tag == TypeTag::EXE_ARR) {
-                auto old_dict = std::move(dictionary);
+        if(iter == dictionary.end()) return false;
+        auto& obj = iter->second;
 
-                auto exe_arr = dynamic_cast<ExeArr*>(obj.get());
-                dictionary = exe_arr->dictionary;//.copy();
+        // If we found an executable array, use caution
+        // Otherwise just push the obj on the stack
+        if(obj->tag == TypeTag::EXE_ARR) {
+            // Set the new dictionary
+            auto old_dict = std::move(dictionary);
+            auto exe_arr = dynamic_cast<ExeArr*>(obj.get());
+            dictionary = exe_arr->dictionary;
 
-                // dictionary.print(std::cout);
-
-                for(auto& x : exe_arr->vec) {
-                    push(x->copy());
-                }
-
-                // exe_arr->dictionary = std::move(dictionary);
-                dictionary = std::move(old_dict);
-            } else {
-                stack.push_back(obj->copy());
+            for(auto& x : exe_arr->vec) {
+                push(x->copy());
             }
-            return true;
+
+            // Reset
+            dictionary = std::move(old_dict);
+        } else {
+            stack.push_back(obj->copy());
         }
-        return false;
+        return true;
     }
 
-    bool evaluate_symbol(std::string& sym) {
+    void evaluate_symbol(std::string& sym) {
         if(sym[sym.size()-1] == '!') {
             sym.pop_back();
             if(stack.size() > 0) {
-                dictionary[sym] = std::move(stack.back());
-                stack.pop_back();
-                return true;
+                dictionary[sym] = stack.pop();
             } else {
-                // TODO error handling
-                return false;
+                throw std::runtime_error("No symbol on the stack");
             }
         } else {
-            return evaluate_builtin(sym) || evaluate_dictionary(sym);
+            if(!evaluate_builtin(sym)) evaluate_dictionary(sym);
         }
     }
 
@@ -105,8 +99,7 @@ public:
             } else if(sym == "}") {
                 exe_arr--;
                 if(exe_arr < 0) {
-                    // TODO throw an error
-
+                    throw std::runtime_error("Closing executable array without beginning");
                 } else if(exe_arr == 0) {
                     evaluate_on_push = true;
 
@@ -165,22 +158,6 @@ void arr_close(PfixStack* s) {
     }
 }
 
-std::unique_ptr<Sym> err(const std::string& err) {
-    return std::make_unique<Sym>("Err: " + err);
-}
-
-bool expect(PfixStack* s, TypeTag tag) {
-    if(!(s->size() > 0 && s->back()->tag == tag)) {
-        if(s->size() > 0) {
-            err("Expected " + type_to_string(tag) + ", found " + type_to_string(s->back()->tag));
-        } else {
-            err("Expected type" + type_to_string(tag));
-        }
-        return false;
-    }
-    return true;
-}
-
 void param_list_close(PfixStack* s) {
     std::vector<std::pair<std::string, std::string>> params;
     std::vector<std::string> ret_types;
@@ -189,7 +166,7 @@ void param_list_close(PfixStack* s) {
     while(s->size() > 0
             && !(s->back()->tag == TypeTag::SYM
             && dynamic_cast<Sym*>(s->back().get())->str == "(")) {
-        if(!expect(s, TypeTag::SYM)) return;
+        s->expect(TypeTag::SYM);
 
         auto sym_ptr = std::move(s->back());
         s->pop_back();
@@ -215,8 +192,7 @@ void param_list_close(PfixStack* s) {
                 if(ret) ret_types.push_back(*it);
                 else {
                     if(params.empty() || is_type(params.back().first)) {
-                        err("Type names have to follow variable names");
-                        return;
+                        throw std::runtime_error("Type names have to follow variable names");
                     }
                     auto name = params.back().first;
                     params.pop_back();
@@ -276,7 +252,7 @@ void lam(Simulator* sim) {
 
 void fun(Simulator* sim) {
     if(sim->stack.size() < 2) {
-        sim->stack.push_back(err("Expected two elements"));
+        throw std::runtime_error("Expected two elements");
     } else {
         auto exe_arr_ptr = std::move(sim->stack.back());
         sim->stack.pop_back();
@@ -284,14 +260,13 @@ void fun(Simulator* sim) {
         sim->stack.pop_back();
 
         if(key_ptr->tag != TypeTag::SYM) {
-            sim->stack.push_back(err("Expected a SYM found " + type_to_string(key_ptr->tag)));
+            throw std::runtime_error("Expected a SYM found " + type_to_string(key_ptr->tag));
         } else {
             auto key = dynamic_cast<Sym*>(key_ptr.get())->str;
             sanitize_symbol(key);
 
             auto exe_arr = dynamic_cast<ExeArr*>(exe_arr_ptr.get());
-            exe_arr->add_dictionary(sim->dictionary);//.copy());
-            //exe_arr->dictionary[key] = exe_arr_ptr;
+            exe_arr->add_dictionary(sim->dictionary);
 
             sim->dictionary[key] = std::move(exe_arr_ptr);
 
@@ -320,19 +295,17 @@ void type_to_symbol(PfixStack* s, std::unique_ptr<Obj> x) {
 using UnaryFunc = std::function<void(PfixStack*, std::unique_ptr<Obj>)>;
 
 void unary_op(PfixStack* s, UnaryFunc op) {
-    if(s->size() == 0) return;
-    auto x = std::move(s->back());
-    s->pop_back();
-    op(s, std::move(x));
+    if(s->size() > 0) {
+        op(s, s->pop());
+    }
 }
 
 void binary_int_op(PfixStack* s, std::function<int(int, int)> op) {
-    if(s->size() < 2) return;
-    auto x2 = std::move(s->back());
-    s->pop_back();
-
-    dynamic_cast<Int*>(s->back().get())->i =
-        op(dynamic_cast<Int*>(s->back().get())->i, dynamic_cast<Int*>(x2.get())->i);
+    if(s->size() < 2) {
+        auto x2 = s->pop();
+        dynamic_cast<Int*>(s->back().get())->i =
+            op(dynamic_cast<Int*>(s->back().get())->i, dynamic_cast<Int*>(x2.get())->i);
+    }
 }
 
 void binary_arith_op(PfixStack* s,
@@ -347,7 +320,7 @@ void binary_arith_op(PfixStack* s,
     if((x1->tag != TypeTag::INT && x1->tag != TypeTag::FLT)
         || (x2->tag != TypeTag::INT && x2->tag != TypeTag::FLT)) {
         // Error
-        std::cout << "Error ma dude" << std::endl;
+        throw std::runtime_error("Invalid binary arithmetic operation");
     } else if(x1->tag == TypeTag::INT && x2->tag == TypeTag::INT) {
         if(int_ret_expect_float) {
             s->back() = std::make_unique<Flt>(flt_op(dynamic_cast<Int*>(x1)->i, dynamic_cast<Int*>(x2.get())->i));
@@ -443,8 +416,7 @@ void load_library(Simulator* sim, PfixStack* s) {
 
     void* handle = dlopen(path.c_str(), RTLD_LAZY);
     if(handle == NULL) {
-        std::cerr << "Could not open " << path << std::endl;
-        return;
+        throw std::runtime_error("Could not open " + path);
     }
 
     const size_t period_idx = path.rfind('.');
