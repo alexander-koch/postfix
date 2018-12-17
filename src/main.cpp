@@ -27,16 +27,16 @@ private:
 
 public:
     Stack stack;
-    std::map<std::string, StackFunction> functions;
+    std::map<std::string, StackFunction> builtins;
     Dictionary dictionary;
 
     void define_symbol(std::string sym, StackFunction sf) {
-        functions.emplace(sym, sf);
+        builtins.emplace(sym, sf);
     }
 
     bool evaluate_builtin(std::string& sym) {
-        auto iter = functions.find(sym);
-        if(iter != functions.end()) {
+        auto iter = builtins.find(sym);
+        if(iter != builtins.end()) {
             iter->second(&stack);
             return true;
         }
@@ -385,15 +385,11 @@ void binary_logical_op(Stack* s, std::function<bool(bool, bool)> bool_op) {
     }
 }
 
-void flt_undefined(Stack* s, double, double) {
-    s->push_back(std::make_unique<Sym>("Err: Operation not defined for :Flt x :Flt"));
-}
-
 Simulator* rl_sim;
 
 char* builtin_name_generator(const char* text, int state) {
     static std::vector<std::string> matches;
-    static size_t match_index;
+    static size_t match_index = 0;
 
     if(state == 0) {
         matches.clear();
@@ -404,12 +400,18 @@ char* builtin_name_generator(const char* text, int state) {
                 matches.push_back(it.first);
             }
         }
+
+        for(auto it : rl_sim->builtins) {
+            if(std::strncmp(it.first.c_str(), text, strlen(text)) == 0) {
+                matches.push_back(it.first);
+            }
+        }
     }
 
     if(match_index >= matches.size()) {
         return nullptr;
     } else {
-        return strdup(matches[match_index].c_str());
+        return strdup(matches[match_index++].c_str());
     }
 }
 
@@ -437,7 +439,7 @@ void add_op(Stack* s) {
 int main() {
     bool running = true;
     auto sim = Simulator();
-    sim.functions = {
+    sim.builtins = {
         {{"+"}, [](Stack* s) { add_op(s); }},
         {{"-"}, [](Stack* s) { binary_arith_op(s, std::minus<int>(), std::minus<double>()); }},
         {{"*"}, [](Stack* s) { binary_arith_op(s, std::multiplies<int>(), std::multiplies<double>()); }},
