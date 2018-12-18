@@ -1,5 +1,7 @@
 # PostFix
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 This is an interpreter for the PostFix programming language.
 
 ## Language
@@ -42,6 +44,13 @@ To load the library type the following in the interpreter:
 >>> "example.so" load-library
 ```
 
+## Contributing
+
+Feel free to file issues and send pull requests.
+Contributions are highly welcome!
+
 ## License
 
 Copyright (c) Alexander Koch 2018
+
+Licensed under [GNU General Public License Version 3](LICENSE).
