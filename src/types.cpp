@@ -20,6 +20,7 @@ std::string type_to_string(TypeTag tag) {
 }
 
 std::unique_ptr<Obj> PfixStack::pop() {
+    if(this->empty()) throw std::runtime_error("Stack is empty and cannot be popped");
     auto x = std::move(this->back());
     this->pop_back();
     return x;

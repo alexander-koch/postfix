@@ -3,7 +3,7 @@ CPPFLAGS := -std=c++14 -Wall -g
 LDFLAGS := -lreadline
 APP := pfix
 
-SOURCES := src/types.cpp
+SOURCES := src/types.cpp src/lexer.cpp src/interpreter.cpp
 OBJECTS := $(SOURCES:src/%.cpp=obj/%.o)
 
 all: $(OBJECTS)
