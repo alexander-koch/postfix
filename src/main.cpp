@@ -13,9 +13,9 @@
 #include "types.hpp"
 #include "lexer.hpp"
 
-#define VERSION "v0.1.7"
+#define VERSION "v0.1.8"
 
-#include "pfix_ffi.hpp"
+#include "types.hpp"
 
 void param_list_close(PfixStack* s);
 
@@ -27,19 +27,7 @@ private:
 
 public:
     PfixStack stack;
-    PfixNativeDictionary builtins;
-    Dictionary dictionary;
-
-    void define_symbol(std::string sym, PfixStackFunction sf) {
-        builtins.emplace(sym, sf);
-    }
-
-    bool evaluate_builtin(std::string& sym) {
-        auto iter = builtins.find(sym);
-        if(iter == builtins.end()) return false;
-        iter->second(&stack);
-        return true;
-    }
+    PfixDictionary dictionary;
 
     bool evaluate_dictionary(std::string& sym) {
         auto iter = dictionary.find(sym);
@@ -47,6 +35,7 @@ public:
         auto& obj = iter->second;
 
         // If we found an executable array, use caution
+        // Native symbol, call method
         // Otherwise just push the obj on the stack
         if(obj->tag == TypeTag::EXE_ARR) {
             // Set the new dictionary
@@ -60,6 +49,9 @@ public:
 
             // Reset
             dictionary = std::move(old_dict);
+        } else if(obj->tag == TypeTag::NATIVE_SYM) {
+            auto nsym = dynamic_cast<NativeSym*>(obj.get());
+            nsym->function(&stack);
         } else {
             stack.push_back(obj->copy());
         }
@@ -75,7 +67,7 @@ public:
                 throw std::runtime_error("No symbol on the stack");
             }
         } else {
-            if(!evaluate_builtin(sym)) evaluate_dictionary(sym);
+            evaluate_dictionary(sym);
         }
     }
 
@@ -373,12 +365,6 @@ char* builtin_name_generator(const char* text, int state) {
                 matches.push_back(it.first);
             }
         }
-
-        for(auto it : rl_sim->builtins) {
-            if(std::strncmp(it.first.c_str(), text, strlen(text)) == 0) {
-                matches.push_back(it.first);
-            }
-        }
     }
 
     if(match_index >= matches.size()) {
@@ -429,14 +415,14 @@ void load_library(Simulator* sim, PfixStack* s) {
     auto method = (PfixEntryPoint)dlsym(handle, method_name.c_str());
 
     if(method != NULL) {
-        method(&sim->builtins);
+        method(&sim->dictionary);
     }
 }
 
 int main() {
     bool running = true;
     auto sim = Simulator();
-    sim.builtins = {
+    std::map<std::string, PfixStackFunction> builtins = {
         {{"+"}, [](PfixStack* s) { add_op(s); }},
         {{"-"}, [](PfixStack* s) { binary_arith_op(s, std::minus<int>(), std::minus<double>()); }},
         {{"*"}, [](PfixStack* s) { binary_arith_op(s, std::multiplies<int>(), std::multiplies<double>()); }},
@@ -460,6 +446,10 @@ int main() {
         {{"fun"}, [&sim](PfixStack* s) { fun(&sim); }},
         {{"load-library"}, [&sim](PfixStack* s) { load_library(&sim, s); }}
     };
+
+    for(auto it : builtins) {
+        sim.dictionary.emplace(it.first, std::make_unique<NativeSym>(it.second));
+    }
 
     rl_sim = &sim;
     rl_attempted_completion_function = builtin_name_completion;

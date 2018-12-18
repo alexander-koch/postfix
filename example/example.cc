@@ -1,4 +1,4 @@
-#include "../src/pfix_ffi.hpp"
+#include "../src/types.hpp"
 
 int fib(int n) {
     if(n <= 1) return 1;
@@ -14,9 +14,11 @@ void PfixFib(PfixStack* s) {
 
 extern "C" {
 
-void PfixInitExample(PfixNativeDictionary* dict) {
+void PfixInitExample(PfixDictionary* dict) {
     std::cout << "Hello" << std::endl;
-    dict->insert(std::make_pair("fib", PfixFib));
+    //auto nsym = std::make_unique<NativeSym>(PfixFib);
+
+    dict->emplace("fib", std::make_unique<NativeSym>(PfixFib));
 }
 
 }

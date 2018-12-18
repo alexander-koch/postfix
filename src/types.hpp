@@ -15,26 +15,36 @@ enum class TypeTag {
     ARR,
     EXE_ARR,
     PARAMS,
-    SYM
+    SYM,
+    NATIVE_SYM,
 };
 
-bool is_type(const std::string& str) {
-    return (str[0] == ':' || str[str.size()-1] == ':');// && std::isupper(str[1]);
-}
+bool is_type(const std::string& str);
+std::string type_to_string(TypeTag tag);
 
-std::string type_to_string(TypeTag tag) {
-    switch(tag) {
-        case TypeTag::OBJ: return ":Obj";
-        case TypeTag::BOOL: return ":Bool";
-        case TypeTag::INT: return ":Int";
-        case TypeTag::FLT: return ":Flt";
-        case TypeTag::STR: return ":Str";
-        case TypeTag::ARR: return ":Arr";
-        case TypeTag::EXE_ARR: return ":ExeArr";
-        case TypeTag::PARAMS: return ":Params";
-        case TypeTag::SYM: return ":Sym";
-    }
-}
+class PfixStack;
+class PfixDictionary;
+class Obj;
+
+using PfixStackFunction = std::function<void(PfixStack* s)>;
+using PfixEntryPoint = void (*)(PfixDictionary* dict);
+
+class PfixStack: public std::vector<std::unique_ptr<Obj>> {
+public:
+    std::unique_ptr<Obj> pop();
+    void pushInt(int i);
+    int popInt();
+    void expect(TypeTag tag);
+};
+
+class PfixDictionary : public std::map<std::string, std::shared_ptr<Obj>> {
+public:
+    std::ostream& print(std::ostream& os);
+
+    void define_native(const std::string& sym, PfixStackFunction sf);
+
+    friend std::ostream& operator<<(std::ostream& os, PfixDictionary& dictionary);
+};
 
 class Obj {
 public:
@@ -44,23 +54,6 @@ public:
     virtual std::unique_ptr<Obj> copy() = 0;
 protected:
     Obj(TypeTag t) : tag(t) {}
-};
-
-class Dictionary : public std::map<std::string, std::shared_ptr<Obj>> {
-public:
-    std::ostream& print(std::ostream& os) {
-        std::cout << "{ ";
-        for(auto& entry : *this) {
-            std::cout << entry.first << ":";
-            entry.second->print(os) << " ";
-        }
-        std::cout << "}" << std::endl;
-        return os;
-    }
-
-    friend std::ostream& operator<<(std::ostream& os, Dictionary& dictionary) {
-        return dictionary.print(os);
-    }
 };
 
 class Bool : public Obj {
@@ -154,14 +147,14 @@ public:
 
 class ExeArr : public Arr {
 public:
-    Dictionary dictionary;
+    PfixDictionary dictionary;
 
-    ExeArr(std::vector<std::unique_ptr<Obj>>&& vec, Dictionary dictionary = Dictionary())
+    ExeArr(std::vector<std::unique_ptr<Obj>>&& vec, PfixDictionary dictionary = PfixDictionary())
         : Arr(std::move(vec)), dictionary(dictionary) {
         this->tag = TypeTag::EXE_ARR;
     }
 
-    void add_dictionary(Dictionary dictionary) {
+    void add_dictionary(PfixDictionary dictionary) {
         this->dictionary = dictionary;
     }
 
@@ -220,8 +213,8 @@ public:
 class Sym : public Obj {
 public:
     std::string str;
-    Sym(std::string str) : Obj(TypeTag::SYM), str(std::move(str)) {}
-    Sym(const char* c) : Obj(TypeTag::SYM), str(c) {}
+    Sym(const std::string& str) : Obj(TypeTag::SYM), str(str) {}
+    // Sym(const char* c) : Obj(TypeTag::SYM), str(c) {}
 
     virtual std::ostream& print(std::ostream& os) override {
         os << str;
@@ -230,6 +223,23 @@ public:
 
     virtual std::unique_ptr<Obj> copy() override {
         return std::make_unique<Sym>(str);
+    }
+};
+
+class NativeSym : public Obj {
+public:
+    PfixStackFunction function;
+
+    NativeSym(PfixStackFunction function)
+        : Obj(TypeTag::NATIVE_SYM), function(function) {}
+
+    virtual std::ostream& print(std::ostream& os) override {
+        std::cout << "native";
+        return os;
+    }
+
+    virtual std::unique_ptr<Obj> copy() override {
+        return std::make_unique<NativeSym>(function);
     }
 };
 
