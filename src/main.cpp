@@ -1,19 +1,11 @@
 #include <iostream>
-#include <string>
-#include <vector>
-#include <map>
-#include <memory>
-#include <sstream>
-#include <algorithm>
-
-
 #include <readline/readline.h>
 #include <readline/history.h>
 
 #include "types.hpp"
 #include "lexer.hpp"
 
-#define VERSION "v0.1.8"
+#define VERSION "v0.1.9"
 
 #include "types.hpp"
 #include "interpreter.hpp"
