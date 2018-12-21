@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <deque>
 
 enum class TypeTag {
     OBJ,
@@ -120,8 +121,15 @@ class Arr : public Obj {
 public:
     virtual ~Arr() override = default;
 
-    std::vector<std::unique_ptr<Obj>> vec;
+    std::deque<std::unique_ptr<Obj>> vec;
+
     Arr(std::vector<std::unique_ptr<Obj>>&& vec)
+        : Obj(TypeTag::ARR) {
+
+        std::move(vec.begin(), vec.end(), std::back_inserter(this->vec));
+    }
+
+    Arr(std::deque<std::unique_ptr<Obj>>&& vec)
         : Obj(TypeTag::ARR), vec(std::move(vec)) {}
 
     virtual std::ostream& print(std::ostream& os) override {
@@ -137,7 +145,7 @@ public:
     }
 
     virtual std::unique_ptr<Obj> copy() override {
-        std::vector<std::unique_ptr<Obj>> copy_vec;
+        std::deque<std::unique_ptr<Obj>> copy_vec;
         std::transform(vec.begin(), vec.end(), std::back_inserter(copy_vec), [](auto& x) {
             return x->copy();
         });

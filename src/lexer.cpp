@@ -18,6 +18,10 @@ bool is_punct(char c) {
     }
 }
 
+bool is_ignored(char c) {
+    return c == ',' || c == '#';
+}
+
 bool Lexer::peek(wchar_t& c) {
     if(pos >= input.size()) {
         return false;
@@ -51,7 +55,11 @@ TokenType Lexer::next(std::string& buffer) {
     buffer.clear();
 
     // Skip all the spaces
-    while(peek(c) && std::iswspace(c)) pos++;
+    while(peek(c) && (std::iswspace(c) || is_ignored(c))) {
+        if(c == '#') {
+            while(peek(c) && c != '\n') pos++;
+        } else pos++;
+    }
     if(!peek(c)) return TokenType::EOL;
     pos++;
 
@@ -66,7 +74,7 @@ TokenType Lexer::next(std::string& buffer) {
         buffer = converter.to_bytes(c);
     } else {
         buffer += converter.to_bytes(c);
-        while(peek(c) && !std::iswspace(c) && !is_punct(c)) {
+        while(peek(c) && !std::iswspace(c) && !is_punct(c) && !is_ignored(c)) {
             buffer += converter.to_bytes(c);
             pos++;
         }
