@@ -6,6 +6,7 @@
 #include <vector>
 #include <map>
 #include <deque>
+#include <stdexcept>
 
 enum class TypeTag {
     OBJ,

@@ -66,46 +66,51 @@ int main() {
         Lexer lexer(std::move(input));
         TokenType tok;
         std::string token;
-        while((tok = lexer.next(token)) != TokenType::EOL) {
-            switch(tok) {
-                case TokenType::STR:
-                    interp.push(std::make_unique<Str>(token));
-                    break;
-                case TokenType::BOOL:
-                    interp.push(std::make_unique<Bool>(token == "true"));
-                    break;
-                case TokenType::INT:
-                    interp.push(std::make_unique<Int>(std::stoi(token)));
-                    break;
-                case TokenType::FLT:
-                    interp.push(std::make_unique<Flt>(std::stod(token)));
-                    break;
-                case TokenType::SYM:
-                    interp.push(std::make_unique<Sym>(token));
-                    break;
-                case TokenType::EOL: break;
+        try {
+            while((tok = lexer.next(token)) != TokenType::EOL) {
+                switch(tok) {
+                    case TokenType::STR:
+                        interp.push(std::make_unique<Str>(token));
+                        break;
+                    case TokenType::BOOL:
+                        interp.push(std::make_unique<Bool>(token == "true"));
+                        break;
+                    case TokenType::INT:
+                        interp.push(std::make_unique<Int>(std::stoi(token)));
+                        break;
+                    case TokenType::FLT:
+                        interp.push(std::make_unique<Flt>(std::stod(token)));
+                        break;
+                    case TokenType::SYM:
+                        interp.push(std::make_unique<Sym>(token));
+                        break;
+                    case TokenType::EOL: break;
+                }
             }
-        }
+    
+            if(interp.stack.size() <= last) {
+                prompt = ">>> ";
+                exe_arr = false;
+                last = 0;
+                continue;
+            }
+            
+            if(interp.stack.size() > 0 && interp.stack.back()->tag == TypeTag::SYM) {
+                auto obj = dynamic_cast<Sym*>(interp.stack.back().get());
+                if(obj->str == "{") {
+                    prompt = "... ";
+                    last = interp.stack.size();
+                    exe_arr = true;
+                }
 
-        if(interp.stack.size() <= last) {
-            prompt = ">>> ";
-            exe_arr = false;
-            last = 0;
-            continue;
-        }
-        
-        if(interp.stack.size() > 0 && interp.stack.back()->tag == TypeTag::SYM) {
-            auto obj = dynamic_cast<Sym*>(interp.stack.back().get());
-            if(obj->str == "{") {
-                prompt = "... ";
-                last = interp.stack.size();
-                exe_arr = true;
+                sanitize_symbol(obj->str);
+                if(obj->str == "exit") {
+                    running = false;
+                }
             }
 
-            sanitize_symbol(obj->str);
-            if(obj->str == "exit") {
-                running = false;
-            }
+        } catch(const std::runtime_error& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
         }
 
         if(interp.stack.size() > 0 && !exe_arr) {

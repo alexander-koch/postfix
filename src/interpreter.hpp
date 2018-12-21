@@ -14,7 +14,7 @@ private:
     int exe_arr = 0;
     int exe_begin;
 
-    bool evaluate_dictionary(std::string& sym);
+    void evaluate_dictionary(std::string& sym);
     void evaluate_symbol(std::string& sym);
 
 public:

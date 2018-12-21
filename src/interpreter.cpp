@@ -2,24 +2,19 @@
 
 void param_list_close(PfixStack* s);
 
+bool is_top_symbol(PfixStack* s, const std::string& str) {
+    return s->back()->tag == TypeTag::SYM && dynamic_cast<Sym*>(s->back().get())->str == str;
+}
+
 void arr_close(PfixStack* s) {
-    std::vector<std::unique_ptr<Obj>> arr;
-    while(s->size() > 0
-            && !(s->back()->tag == TypeTag::SYM
-            && dynamic_cast<Sym*>(s->back().get())->str == "[")) {
+    std::deque<std::unique_ptr<Obj>> arr;
+    while(s->size() > 0 && !is_top_symbol(s, "[")) arr.push_front(s->pop());
 
-        arr.push_back(s->pop());
-    }
-
-    if(s->size() > 0
-            && s->back()->tag == TypeTag::SYM
-            && dynamic_cast<Sym*>(s->back().get())->str == "[") {
-
+    if(s->size() > 0 && is_top_symbol(s, "[")) {
         s->pop_back();
-        std::reverse(arr.begin(), arr.end());
         s->push_back(std::make_unique<Arr>(std::move(arr)));
     } else {
-        // TODO error
+        throw std::runtime_error("Expected an array beginning");
     }
 }
 
@@ -28,17 +23,12 @@ void param_list_close(PfixStack* s) {
     std::vector<std::string> ret_types;
     std::vector<std::string> buffer;
 
-    while(s->size() > 0
-            && !(s->back()->tag == TypeTag::SYM
-            && dynamic_cast<Sym*>(s->back().get())->str == "(")) {
+    while(s->size() > 0 && !is_top_symbol(s, "(")) {
         s->expect(TypeTag::SYM);
         buffer.push_back(dynamic_cast<Sym*>(s->pop().get())->str);
     }
 
-    if(s->size() > 0
-            && s->back()->tag == TypeTag::SYM
-            && dynamic_cast<Sym*>(s->back().get())->str == "(") {
-
+    if(s->size() > 0 && is_top_symbol(s, "(")) {
         s->pop_back();
 
         bool ret = false;
@@ -68,7 +58,7 @@ void param_list_close(PfixStack* s) {
 
         s->push_back(std::make_unique<Params>(std::move(params), std::move(ret_types)));
     } else {
-        // TODO error
+        throw std::runtime_error("Expected a parameter list beginning");
     }
 }
 
@@ -83,7 +73,7 @@ void sanitize_symbol(std::string& sym) {
 
 void store_symbol(PfixInterpreter* interp) {
     if(interp->stack.size() < 2) {
-        // TODO error handling
+        throw std::runtime_error("There must be two symbols: key, value on the stack");
     } else {
         auto val = interp->stack.pop();
         auto key = interp->stack.pop();
@@ -99,13 +89,11 @@ void store_symbol(PfixInterpreter* interp) {
 }
 
 void lam(PfixInterpreter* interp) {
-    if(interp->stack.size() < 1) {
-        // TODO error handling
-    } else if(interp->stack.back()->tag != TypeTag::EXE_ARR) {
-        // TODO error handling
+    if(interp->stack.size() < 1 || interp->stack.back()->tag != TypeTag::EXE_ARR) {
+        throw std::runtime_error("Lambda expects one executable array");
     } else {
         auto exe_arr = dynamic_cast<ExeArr*>(interp->stack.back().get());
-        exe_arr->add_dictionary(interp->dictionary);//.copy());
+        exe_arr->add_dictionary(interp->dictionary);
     }
 }
 
@@ -176,28 +164,32 @@ using UnaryFunc = std::function<void(PfixStack*, std::unique_ptr<Obj>)>;
 void unary_op(PfixStack* s, UnaryFunc op) {
     if(s->size() > 0) {
         op(s, s->pop());
+    } else {
+        throw std::runtime_error("Unary operator expects one element");
     }
 }
 
 void binary_int_op(PfixStack* s, std::function<int(int, int)> op) {
     if(s->size() < 2) {
-        auto x2 = s->pop();
-        dynamic_cast<Int*>(s->back().get())->i =
-            op(dynamic_cast<Int*>(s->back().get())->i, dynamic_cast<Int*>(x2.get())->i);
+        throw std::runtime_error("Binary operator expects two elements");
     }
+    auto x2 = s->pop();
+    dynamic_cast<Int*>(s->back().get())->i =
+        op(dynamic_cast<Int*>(s->back().get())->i, dynamic_cast<Int*>(x2.get())->i);
 }
 
 void binary_arith_op(PfixStack* s,
         std::function<int(int, int)> int_op,
         std::function<double(double, double)> flt_op,
         bool int_ret_expect_float=false) {
-    if(s->size() < 2) return;
+    if(s->size() < 2) {
+        throw std::runtime_error("Binary operator expects two elements");
+    }
     auto x2 = s->pop();
     auto x1 = s->back().get();
 
     if((x1->tag != TypeTag::INT && x1->tag != TypeTag::FLT)
         || (x2->tag != TypeTag::INT && x2->tag != TypeTag::FLT)) {
-        // Error
         throw std::runtime_error("Invalid binary arithmetic operation");
     } else if(x1->tag == TypeTag::INT && x2->tag == TypeTag::INT) {
         if(int_ret_expect_float) {
@@ -220,7 +212,9 @@ void binary_arith_op(PfixStack* s,
 }
 
 void binary_logical_op(PfixStack* s, std::function<bool(bool, bool)> bool_op) {
-    if(s->size() < 1) return;
+    if(s->size() < 2) {
+        throw std::runtime_error("Binary operator expects two elements");
+    }
     auto x = s->pop();
 
     if(x->tag == TypeTag::ARR) {
@@ -236,8 +230,9 @@ void binary_logical_op(PfixStack* s, std::function<bool(bool, bool)> bool_op) {
 }
 
 void add_op(PfixStack* s) {
-    if(s->size() < 2) return;
-    if(s->back()->tag == TypeTag::STR) {
+    if(s->size() < 2) {
+        throw std::runtime_error("Binary operator expects two elements");
+    } else if(s->back()->tag == TypeTag::STR) {
         auto x2 = s->pop();
         auto x1 = s->back().get();
         if(x1->tag != TypeTag::STR) {
@@ -250,9 +245,9 @@ void add_op(PfixStack* s) {
     }
 }
 
-void load_library(PfixInterpreter* interp, PfixStack* s) {
-    auto x = std::move(s->back());
-    s->pop_back();
+void load_library(PfixInterpreter* interp) {
+    auto x = interp->stack.pop();
+    // TODO: check if x is actually a string
     auto path = dynamic_cast<Str*>(x.get())->str;
 
     void* handle = dlopen(path.c_str(), RTLD_LAZY);
@@ -274,14 +269,16 @@ void load_library(PfixInterpreter* interp, PfixStack* s) {
     }
 }
 
-bool PfixInterpreter::evaluate_dictionary(std::string& sym) {
+void PfixInterpreter::evaluate_dictionary(std::string& sym) {
     auto iter = dictionary.find(sym);
-    if(iter == dictionary.end()) return false;
+    if(iter == dictionary.end()) {
+        throw std::runtime_error("Symbol '" + sym + "' is not defined");
+    }
     auto& obj = iter->second;
 
     // If we found an executable array, use caution
     // Native symbol, call method
-    // Otherwise just push the obj on the stack
+    // Otherwise just push the obj onto the stack
     if(obj->tag == TypeTag::EXE_ARR) {
         // Set the new dictionary
         auto old_dict = std::move(dictionary);
@@ -300,17 +297,18 @@ bool PfixInterpreter::evaluate_dictionary(std::string& sym) {
     } else {
         stack.push_back(obj->copy());
     }
-    return true;
 }
 
 void PfixInterpreter::evaluate_symbol(std::string& sym) {
+    // If the symbol ends with an exclamation mark, store it
     if(sym[sym.size()-1] == '!') {
         sym.pop_back();
         if(stack.size() > 0) {
             dictionary[sym] = stack.pop();
         } else {
-            throw std::runtime_error("No symbol on the stack");
+            throw std::runtime_error("No value to store on the stack");
         }
+    // Otherwise try to find its definition
     } else {
         evaluate_dictionary(sym);
     }
@@ -320,8 +318,38 @@ constexpr int divides_int(double lhs, double rhs) {
     return (int)lhs / (int)rhs;
 }
 
+// cond {if} {else} if
+// cond {if} if
+void if_cond(PfixInterpreter* interp) {
+    interp->stack.expect(TypeTag::EXE_ARR);
+    auto x = interp->stack.pop();
+    std::unique_ptr<Obj> y = NULL;
+
+    // There exists an if part after the else part
+    if(!interp->stack.empty() && interp->stack.back()->tag == TypeTag::EXE_ARR) {
+        y = interp->stack.pop();
+    }
+
+    interp->stack.expect(TypeTag::BOOL);
+    if(dynamic_cast<Bool*>(interp->stack.pop().get())->b) {
+        // There is only one value (x)
+        if(y == NULL) {
+            interp->push(std::move(x));
+        // There are two values y, x
+        } else {
+            interp->push(std::move(y));
+        }
+    } else {
+        // There are two values y, x
+        if(y != NULL) {
+            interp->push(std::move(x));
+        }
+    }
+
+}
+
 void PfixInterpreter::load_builtins() {
-     std::map<std::string, PfixStackFunction> builtins = {
+    const std::map<std::string, PfixStackFunction> builtins = {
         {{"+"}, [](PfixStack* s) { add_op(s); }},
         {{"-"}, [](PfixStack* s) { binary_arith_op(s, std::minus<int>(), std::minus<double>()); }},
         {{"*"}, [](PfixStack* s) { binary_arith_op(s, std::multiplies<int>(), std::multiplies<double>()); }},
@@ -342,10 +370,11 @@ void PfixInterpreter::load_builtins() {
         {{"!"}, [this](PfixStack* s) { store_symbol(this); }},
         {{"lam"}, [this](PfixStack* s) { lam(this); }},
         {{"fun"}, [this](PfixStack* s) { fun(this); }},
-        {{"load-library"}, [this](PfixStack* s) { load_library(this, s); }}
+        {{"if"}, [this](PfixStack* s) { if_cond(this); }},
+        {{"load-library"}, [this](PfixStack* s) { load_library(this); }}
     };
 
-    for(auto it : builtins) {
+    for(auto& it : builtins) {
         dictionary.emplace(it.first, std::make_unique<NativeSym>(it.second));
     }
 }
