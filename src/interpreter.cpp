@@ -143,8 +143,7 @@ void fun(PfixInterpreter* interp) {
             // Hijack executable array
             if(!parameters.empty()) {
                 for(auto& it : parameters) {
-                    exe_arr->vec.push_front(std::make_unique<Sym>("!"));
-                    exe_arr->vec.push_front(std::make_unique<Sym>(":"+it.first));  
+                    exe_arr->vec.push_front(std::make_unique<Sym>(it.first+"!"));  
                 }
             }
 
