@@ -17,6 +17,7 @@ std::string type_to_string(TypeTag tag) {
         case TypeTag::SYM: return ":Sym";
         case TypeTag::NATIVE_SYM: return ":NativeSym";
     }
+    throw std::logic_error("not implemented");
 }
 
 std::unique_ptr<Obj> PfixStack::pop() {

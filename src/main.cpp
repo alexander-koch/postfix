@@ -6,7 +6,7 @@
 #include "types.hpp"
 #include "lexer.hpp"
 
-#define VERSION "v0.1.9"
+#define VERSION "v0.2.0"
 
 #include "types.hpp"
 #include "interpreter.hpp"
@@ -117,7 +117,6 @@ int main() {
         if(interp.stack.size() > 0 && !exe_arr) {
             interp.stack.back()->print(std::cout) << std::endl;
         }
-
     }
 
     return 0;
