@@ -3,8 +3,10 @@
 
 #include <iostream>
 #include <string>
+#include <locale>
 #include <clocale>
 #include <codecvt>
+#include <algorithm>
 
 enum class TokenType {
     STR,

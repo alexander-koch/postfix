@@ -7,6 +7,9 @@
 #include <map>
 #include <deque>
 #include <stdexcept>
+#include <memory>
+#include <functional>
+#include <algorithm>
 
 enum class TypeTag {
     OBJ,

@@ -1,6 +1,5 @@
 #include "lexer.hpp"
 
-
 Lexer::Lexer(std::string&& input) {
     std::setlocale(LC_ALL, "");
     this->input = converter.from_bytes(input);

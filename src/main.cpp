@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstring>
 #include <readline/readline.h>
 #include <readline/history.h>
 
